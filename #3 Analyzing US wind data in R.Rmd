@@ -1,0 +1,100 @@
+---
+title: "Analyzing US wind data in R"
+author: "T. Walker"
+date: "5/9/2021"
+output: html_document
+chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+install.packages("mapproj")
+```
+
+
+```{r}
+library(tidyverse)
+library(gganimate)
+us_wind <- read_csv("https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2018/2018-11-06/us_wind.csv")
+```
+
+```{r}
+View(us_wind)
+```
+
+```{r}
+us_wind_processed <- us_wind %>% 
+  filter(!t_state %in% c("AK", "HI", "GU", "PR")) %>% 
+  mutate(p_year = ifelse(p_year < -8000, NA, p_year),
+         t_cap = ifelse(t_cap < 0, NA, t_cap)) %>% 
+  mutate_if(is.numeric, ~ ifelse(. == -9999, NA, .))
+```
+
+```{r}
+wind_projects <- us_wind_processed %>% 
+  group_by(p_name, t_state) %>%
+  summarise(year = min(p_year, na.rm = TRUE),
+            turbines = n(),
+            total_capacity = sum(t_cap),
+            lon = mean(xlong),
+            lat = mean(ylat),
+            lon_sd = sd(xlong),
+            lat_sd = sd(ylat)) %>% 
+  ungroup()
+```
+
+```{r}
+p <- wind_projects %>% 
+  filter(!is.na(year), !is.infinite(year)) %>% 
+  ggplot(aes(lon, lat, size = turbines, color = year)) +
+  geom_point() +
+  transition_reveal(year) +
+  coord_map +
+  labs(title = "Year: round{frame_along}") +
+  theme_void()
+
+animate(p)
+```
+
+```{r}
+turbine_models <- us_wind_processed %>% 
+  group_by(t_model) %>% 
+  summarize(t_cap = median(t_cap),
+            t_hh = median(t_hh),
+            t_rd = median(t_rd),
+            t_rsa = median(t_rsa),
+            t_ttlh = median(t_ttlh),
+            turbines = n(),
+            projects = n_distinct(p_name)) %>% 
+  arrange(desc(projects))
+
+turbine_models %>% 
+  ggplot(aes(t_ttlh, t_cap)) +
+  geom_point() +
+  labs(title = "When it comes to turbines, bigger is better",
+       x = "Turbine total height (meters)",
+       y = "Turbine capacity (kW)")
+```
+
+```{r}
+wind_projects %>% 
+  ggplot(aes(year, total_capacity)) +
+  geom_point()
+  
+wind_projects %>% 
+  ggplot(aes(year, total_capacity / turbines)) +
+  geom_point()
+```
+
+```{r}
+wind_projects %>% 
+  group_by(year) %>% 
+  summarize(median_capacity = median(total_capacity, na.rm = TRUE),
+            projects = n ()) %>% 
+  ggplot(aes(year, median_capacity)) +
+  geom_line()
+```
+
