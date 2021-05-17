@@ -1,0 +1,91 @@
+---
+title: '#4b Analyzing UN votes in R. Dimensionality reduction of United Nations voting
+  patterns.Rmd'
+author: "T. Walker"
+date: "5/17/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(unvotes)
+```
+
+```{r}
+unvotes <- un_votes
+issues <- un_roll_call_issues
+```
+
+```{r}
+unvotes_df <- unvotes %>% 
+  select(country, rcid, vote) %>% 
+  mutate(vote = factor(vote, levels = c("no", "abstain", "yes")),
+         vote = as.numeric(vote),
+         rcid = paste0("rcid_", rcid)) %>% 
+  pivot_wider(names_from = "rcid", values_from = "vote", values_fill = 2)
+```
+
+```{r}
+library(recipes)
+
+pca_rec <- recipe(~ ., data = unvotes_df) %>%
+  update_role(country, new_role = "id") %>% 
+  step_normalize(all_predictors()) %>% 
+  step_pca(all_predictors())
+
+pca_prep <- prep(pca_rec)
+```
+
+```{r}
+bake(pca_prep, new_data = NULL) %>% 
+  ggplot(aes(PC1, PC2, label = country)) +
+  geom_point(color = "midnightblue", alpha = .7, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward")
+```
+
+##UMAP
+
+```{r}
+library(embed)
+
+umap_rec <- recipe(~ ., data = unvotes_df) %>%
+  update_role(country, new_role = "id") %>% 
+  step_normalize(all_predictors()) %>% 
+  step_umap(all_predictors())
+
+umap_prep <- prep(umap_rec)
+```
+
+```{r}
+bake(umap_prep, new_data = NULL) %>% 
+  ggplot(aes(umap_1, umap_2, label = country)) +
+  geom_point(color = "midnightblue", alpha = .7, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward")
+```
+
+```{r}
+pca_comps <- tidy(pca_prep, 2) %>%
+  filter(component %in% paste0("PC", 1:4)) %>% 
+  left_join(issues %>% mutate(terms = paste0("rcid_", rcid))) %>% 
+  filter(!is.na(issue)) %>% 
+  group_by(component) %>% 
+  slice_max(abs(value), n = 8) %>% 
+  ungroup()
+
+pca_comps %>%
+  mutate(value = abs(value)) %>% 
+  ggplot(aes(value, terms, fill = issue)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~component, scales = "free_y") +
+  labs(y = NULL, fill = NULL,
+         x = "Absolute value of contribution")
+```
+
+
+
